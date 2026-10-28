@@ -1,0 +1,299 @@
+
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kho TK/MK & Mã SK Chung Sức</title>
+<style>
+*{box-sizing:border-box}
+body{
+  margin:0;padding:20px;
+  font-family:Arial,sans-serif;
+  background:#0c1222;color:#f2f5ff
+}
+main{max-width:760px;margin:auto}
+h1,h2{margin-top:0}
+.panel{
+  background:#171f34;border:1px solid #303c58;
+  border-radius:16px;padding:18px;margin-bottom:18px
+}
+p{color:#bac6df;line-height:1.5}
+textarea,input{
+  width:100%;padding:12px;border-radius:9px;
+  border:1px solid #394866;background:#0c1427;
+  color:white;font:inherit;margin:7px 0
+}
+textarea{min-height:120px;resize:vertical}
+button{
+  border:0;border-radius:9px;padding:10px 13px;
+  background:#87a5ff;color:#10172b;
+  font-weight:bold;cursor:pointer;margin:4px 3px 4px 0
+}
+.secondary{background:#34415f;color:white}
+.danger{background:#743746;color:white}
+.item{
+  padding:13px;margin:10px 0;
+  border:1px solid #34415f;border-radius:12px;
+  overflow-wrap:anywhere
+}
+.row{
+  display:flex;align-items:center;justify-content:space-between;
+  gap:10px;padding:9px 0;border-bottom:1px solid #34415f
+}
+.row span{overflow-wrap:anywhere;min-width:0}
+.row button{flex-shrink:0}
+.small{font-size:13px;color:#bac6df}
+#status{color:#a9f4c8;min-height:20px}
+@media(max-width:480px){
+  body{padding:12px}.panel{padding:13px}
+  .row{align-items:flex-start;flex-wrap:wrap}
+}
+</style>
+</head>
+<body>
+<main>
+  <header class="panel">
+    <h1>Kho TK/MK</h1>
+    <p>Quản lý tài khoản, mật khẩu và mã sự kiện tại một nơi.</p>
+    <p class="small">
+      Dữ liệu được lưu trong trình duyệt hiện tại.
+      Không nhập thông tin của người khác khi chưa được phép.
+    </p>
+  </header>
+
+  <section class="panel">
+    <h2>1. Nhập tài khoản / mật khẩu</h2>
+    <p>Dán mỗi cặp trên một dòng theo dạng
+      <code>taikhoan:matkhau</code>.
+    </p>
+    <textarea id="inputAccounts"
+      placeholder="Tuancon0110:Tuancon0110@"></textarea>
+    <button id="addAccounts">Lọc và lưu TK/MK</button>
+    <button class="secondary" id="clearInput">Xóa nội dung nhập</button>
+    <div id="accountList"></div>
+  </section>
+
+  <section class="panel">
+    <h2>2. Mã SK Chung Sức</h2>
+    <p>Nhập mã sự kiện bạn muốn lưu. Có thể sao chép mã bằng một nút.</p>
+    <input id="eventName" placeholder="Tên mã, ví dụ: Sự kiện tuần này">
+    <input id="eventCode" placeholder="Nhập mã SK Chung Sức">
+    <button id="saveCode">Lưu mã</button>
+    <div id="codeList"></div>
+  </section>
+
+  <p id="status" role="status" aria-live="polite"></p>
+</main>
+
+<script>
+const ACCOUNT_KEY = "personal-account-list-v1";
+const CODE_KEY = "personal-event-code-list-v1";
+const $ = id => document.getElementById(id);
+
+let accounts = readStore(ACCOUNT_KEY);
+let codes = readStore(CODE_KEY);
+
+function readStore(key) {
+  try {
+    const value = JSON.parse(localStorage.getItem(key) || "[]");
+    return Array.isArray(value) ? value : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveStore(key, data) {
+  try {
+    localStorage.setItem(key, JSON.stringify(data));
+    return true;
+  } catch {
+    $("status").textContent =
+      "Không lưu được dữ liệu. Hãy kiểm tra dung lượng trình duyệt.";
+    return false;
+  }
+}
+
+function button(label, className, action) {
+  const b = document.createElement("button");
+  b.textContent = label;
+  b.type = "button";
+  if (className) b.className = className;
+  b.addEventListener("click", action);
+  return b;
+}
+
+async function copyText(text, label) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.style.position = "fixed";
+      area.style.opacity = "0";
+      document.body.appendChild(area);
+      area.select();
+      const ok = document.execCommand("copy");
+      area.remove();
+      if (!ok) throw new Error("copy failed");
+    }
+    $("status").textContent = "Đã sao chép " + label + ".";
+  } catch {
+    $("status").textContent =
+      "Không thể sao chép. Hãy thử mở trang bằng HTTPS.";
+  }
+}
+
+function renderAccounts() {
+  const root = $("accountList");
+  root.replaceChildren();
+
+  if (!accounts.length) {
+    root.textContent = "Chưa có tài khoản nào được lưu.";
+    return;
+  }
+
+  accounts.forEach((account, index) => {
+    const card = document.createElement("article");
+    card.className = "item";
+
+    const title = document.createElement("h3");
+    title.textContent = "Tài khoản " + (index + 1);
+    card.appendChild(title);
+
+    for (const [label, value, short] of [
+      ["TK", account.username, "tài khoản"],
+      ["MK", account.password, "mật khẩu"]
+    ]) {
+      const row = document.createElement("div");
+      row.className = "row";
+
+      const text = document.createElement("span");
+      text.textContent = label + ": " + value;
+
+      row.append(text, button(
+        "Sao chép " + label, "secondary",
+        () => copyText(value, short)
+      ));
+      card.appendChild(row);
+    }
+
+    card.append(
+      button("Sao chép cả TK/MK", "",
+        () => copyText(
+          account.username + ":" + account.password, "cặp TK/MK"
+        )
+      ),
+      button("Xóa", "danger", () => {
+        accounts.splice(index, 1);
+        if (saveStore(ACCOUNT_KEY, accounts)) renderAccounts();
+      })
+    );
+    root.appendChild(card);
+  });
+}
+
+function renderCodes() {
+  const root = $("codeList");
+  root.replaceChildren();
+
+  if (!codes.length) {
+    root.textContent = "Chưa có mã SK Chung Sức nào.";
+    return;
+  }
+
+  codes.forEach((item, index) => {
+    const card = document.createElement("article");
+    card.className = "item";
+
+    const title = document.createElement("h3");
+    title.textContent = item.name || "Mã SK Chung Sức";
+    const code = document.createElement("p");
+    code.textContent = item.code;
+
+    card.append(
+      title, code,
+      button("Sao chép mã", "",
+        () => copyText(item.code, "mã SK Chung Sức")
+      ),
+      button("Xóa mã", "danger", () => {
+        codes.splice(index, 1);
+        if (saveStore(CODE_KEY, codes)) renderCodes();
+      })
+    );
+    root.appendChild(card);
+  });
+}
+
+$("addAccounts").addEventListener("click", () => {
+  const found = [];
+
+  for (const raw of $("inputAccounts").value.split(/\r?\n/)) {
+    const line = raw.trim();
+    const separator = line.indexOf(":");
+    if (separator <= 0 || separator === line.length - 1) continue;
+
+    const username = line.slice(0, separator).trim();
+    const password = line.slice(separator + 1).trim();
+    if (!username || !password) continue;
+
+    if (!found.some(x =>
+      x.username === username && x.password === password
+    )) found.push({ username, password });
+  }
+
+  if (!found.length) {
+    $("status").textContent =
+      "Không tìm thấy cặp hợp lệ theo dạng TK:MK.";
+    return;
+  }
+
+  let added = 0;
+  for (const item of found) {
+    if (!accounts.some(x =>
+      x.username === item.username && x.password === item.password
+    )) {
+      accounts.push(item);
+      added++;
+    }
+  }
+
+  if (saveStore(ACCOUNT_KEY, accounts)) {
+    renderAccounts();
+    $("inputAccounts").value = "";
+    $("status").textContent =
+      `Tìm thấy ${found.length} cặp; đã thêm ${added} cặp mới.`;
+  }
+});
+
+$("clearInput").addEventListener("click", () => {
+  $("inputAccounts").value = "";
+});
+
+$("saveCode").addEventListener("click", () => {
+  const name = $("eventName").value.trim();
+  const code = $("eventCode").value.trim();
+
+  if (!code) {
+    $("status").textContent = "Bạn hãy nhập mã SK Chung Sức.";
+    return;
+  }
+
+  if (!codes.some(x => x.code === code)) {
+    codes.push({ name: name || "Mã SK Chung Sức", code });
+  }
+
+  if (saveStore(CODE_KEY, codes)) {
+    renderCodes();
+    $("eventName").value = "";
+    $("eventCode").value = "";
+    $("status").textContent = "Đã lưu mã SK Chung Sức.";
+  }
+});
+
+renderAccounts();
+renderCodes();
+</script>
+</body>
+</html>
